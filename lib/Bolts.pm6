@@ -11,6 +11,11 @@ class Blueprint::Literal does Blueprint {
     method get($c, Capture $args) { $!value }
 }
 
+class Blueprint::Factory does Blueprint {
+    has $.class;
+    method get($c, Capture $args) { $!class.new(|$args) }
+}
+
 class Blueprint::Given does Blueprint {
     method get($c, Capture $args) { |$args }
 }
@@ -29,14 +34,19 @@ multi build-artifact(Whatever) {
         blueprint => Blueprint::Given.new,
     )
 }
-multi build-artifact($value) {
+multi build-artifact(:$class!) {
+    \(
+        blueprint => Blueprint::Factory.new(:$class),
+    )
+}
+multi build-artifact(Cool $value) {
     \(
         blueprint => Blueprint::Literal.new(:$value),
     )
 }
 
 multi trait_mod:<is> (Method $m, :$artifact) is export {
-    my $a = build-artifact($artifact);
+    my $a = build-artifact(|$artifact);
     $m.wrap(-> $self, |a {
         my $args = callsame;
         $args = a if $args ~~ Whatever;
