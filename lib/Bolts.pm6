@@ -2,7 +2,11 @@ unit module Bolts;
 
 use v6;
 
-class Blueprint::Literal {
+role Blueprint {
+    method get($c, Capture $args) { ... }
+}
+
+class Blueprint::Literal does Blueprint {
     has $.value;
     method get($c, Capture $args) { $!value }
 }
