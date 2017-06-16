@@ -11,6 +11,10 @@ class Blueprint::Literal does Blueprint {
     method get($c, Capture $args) { $!value }
 }
 
+class Blueprint::Given does Blueprint {
+    method get($c, Capture $args) { |$args }
+}
+
 class Artifact {
     has $.blueprint is required;
 
@@ -20,13 +24,18 @@ class Artifact {
 }
 
 proto build-artifact(|) { Artifact.new(|{*}); }
+multi build-artifact(Whatever) {
+    \(
+        blueprint => Blueprint::Given.new,
+    )
+}
 multi build-artifact($value) {
     \(
         blueprint => Blueprint::Literal.new(:$value),
     )
 }
 
-multi trait_mod:<is> (Method $m, :$artifact!) is export {
+multi trait_mod:<is> (Method $m, :$artifact) is export {
     my $a = build-artifact($artifact);
     $m.wrap(-> $self, |a {
         my $args = callsame;
