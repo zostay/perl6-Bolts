@@ -12,6 +12,8 @@ class Simple {
     method given(|) is artifact(*) { * }
 
     method foo(|) is artifact(:class(Foo)) { * }
+
+    method counter(|) is artifact({ ++$ }) { * }
 }
 
 my $simple = Simple.new;
@@ -21,5 +23,9 @@ is $simple.given('not very useful'), 'not very useful', 'got a not very useful f
 my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;
 is $foo.stuff, 'ffuts', 'got ffuts from foo.stuff';
+
+is $simple.counter, 1, 'first simple.counter is 1';
+is $simple.counter, 2, 'first simple.counter is 2';
+is $simple.counter, 3, 'first simple.counter is 3';
 
 done-testing;

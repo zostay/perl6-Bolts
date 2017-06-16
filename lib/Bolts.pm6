@@ -6,9 +6,9 @@ role Blueprint {
     method get($c, Capture $args) { ... }
 }
 
-class Blueprint::Literal does Blueprint {
-    has $.value;
-    method get($c, Capture $args) { $!value }
+class Blueprint::Built does Blueprint {
+    has &.builder;
+    method get($c, Capture $args) { &!builder.(|$args) }
 }
 
 class Blueprint::Factory does Blueprint {
@@ -20,9 +20,13 @@ class Blueprint::Given does Blueprint {
     method get($c, Capture $args) { |$args }
 }
 
+class Blueprint::Literal does Blueprint {
+    has $.value;
+    method get($c, Capture $args) { $!value }
+}
+
 class Artifact {
     has $.blueprint is required;
-
     method get($c, Capture $args) {
         $!blueprint.get($c, $args);
     }
@@ -37,6 +41,11 @@ multi build-artifact(Whatever) {
 multi build-artifact(:$class!) {
     \(
         blueprint => Blueprint::Factory.new(:$class),
+    )
+}
+multi build-artifact(&builder) {
+    \(
+        blueprint => Blueprint::Built.new(:&builder),
     )
 }
 multi build-artifact(Cool $value) {
