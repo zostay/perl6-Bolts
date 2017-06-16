@@ -54,15 +54,22 @@ multi build-artifact(Cool $value) {
     )
 }
 
-multi trait_mod:<is> (Method $m, :$artifact) is export {
-    my $a = build-artifact(|$artifact);
-    $m.wrap(-> $self, |a {
-        my $args = callsame;
-        $args = a if $args ~~ Whatever;
+role Trait::Artifact[Artifact $artifact, Method $orig] {
+    method artifact { $artifact }
+
+    method CALL-ME($self, |args) {
+        my $args = $self.$orig(|args);
+        $args = args if $args ~~ Whatever;
 
         Proxy.new(
-            FETCH => method () { $a.get($self, $args) },
+            FETCH => method () { $artifact.get($self, $args) },
             STORE => method ($v) { die 'storing to an artifact is not permitted' },
         );
-    });
+    }
+}
+
+multi trait_mod:<is> (Method $m, :$artifact) is export {
+    my $a = build-artifact(|$artifact);
+    my $orig = $m.clone;
+    $m does Trait::Artifact[$a, $orig];
 }
