@@ -17,7 +17,33 @@ class Blueprint::Factory does Blueprint {
 }
 
 class Blueprint::Given does Blueprint {
-    method get($c, Capture $args) { |$args }
+    has $.key;
+
+    has Int $.at;
+    has Bool $.slurp;
+
+    has Bool $.slurp-keys;
+    has Set $.excluding-keys;
+
+    method get($c, Capture $args) {
+        if $!key.defined {
+            $args{ $!key };
+        }
+        elsif $!slurp-keys {
+            |$args.hash.grep({ .key ∉ $!excluding-keys })
+        }
+        elsif $!at.defined {
+            if $!slurp {
+                |$args[ $!at .. *-1 ];
+            }
+            else {
+                $args[ $!at ];
+            }
+        }
+        else {
+            |$args
+        }
+    }
 }
 
 class Blueprint::Literal does Blueprint {
@@ -25,27 +51,150 @@ class Blueprint::Literal does Blueprint {
     method get($c, Capture $args) { $!value }
 }
 
-class Artifact {
-    has $.blueprint is required;
+# class Registry {
+#     has %.roots;
+#     has %.index;
+#
+#     multi method add-root($name, $obj) {
+#         %!root{ $name } = $obj;
+#     }
+#
+#     multi method acquire($ref, |args) {
+#     }
+#
+#     multi method acquire(@path, |args) {
+#
+#     }
+# }
+
+role Injector { }
+
+role Parameter is Injector {
+    method get($c, Capture $args) { ... }
+}
+
+class Parameter::NamedSlip does Parameter {
+    has $.blueprint;
+
+    method get($c, Capture $args) {
+        |$!blueprint.get($c, $args);
+    }
+}
+
+class Parameter::Slip does Parameter {
+    has $.blueprint;
+
+    method get($c, Capture $args) {
+        |$!blueprint.get($c, $args);
+    }
+}
+
+class Parameter::Named does Parameter {
+    has $.key;
+    has $.blueprint;
+
+    method get($c, Capture $args) {
+        $!key => $!blueprint.get($c, $args);
+    }
+}
+
+class Parameter::Positional does Parameter {
+    has $.blueprint;
+
     method get($c, Capture $args) {
         $!blueprint.get($c, $args);
     }
 }
 
+class Artifact {
+    has $.blueprint is required;
+    has @.injectors;
+
+    method get($c, Capture $args) {
+        my (@list, %hash);
+        for @!injectors.grep(Parameter) {
+            my $value = .get($c, $args);
+            when Parameter::Positional {
+                push @list, $value;
+            }
+            when Parameter::Named {
+                push %hash, $value;
+            }
+            when Parameter::Slip {
+                push @list, |$value;
+            }
+            when Parameter::NamedSlip {
+                push %hash, |$value;
+            }
+            default {
+                given .get($c, $args) {
+                    when Pair { push %hash, $_ }
+                    default { push @list, $_ }
+                }
+            }
+        }
+
+        my $inject-args = Capture.new(:@list, :%hash);
+
+        $!blueprint.get($c, $inject-args);
+    }
+}
+
+multi build-parameters(Capture:D $cons) {
+    gather {
+        for $cons.list -> $blueprint is copy {
+            if $blueprint !~~ Blueprint {
+                $blueprint = Blueprint::Literal.new(value => $blueprint);
+            }
+
+            take Parameter::Positional.new(
+                blueprint => $blueprint;
+            );
+        }
+
+        for $cons.hash.kv -> $key, $blueprint is copy {
+            if $blueprint !~~ Blueprint {
+                $blueprint = Blueprint::Literal.new(value => $blueprint);
+            }
+
+            take Parameter::Named.new(
+                key       => $key,
+                blueprint => $blueprint,
+            );
+        }
+    }
+}
+multi build-parameters(Any:U) {
+    (
+        Parameter::Slip.new(
+            blueprint => Blueprint::Given.new(:slurp),
+        ),
+        Parameter::NamedSlip.new(
+            blueprint => Blueprint::Given.new(:slurp-keys),
+        ),
+    )
+}
+
 proto build-artifact(|) { Artifact.new(|{*}); }
-multi build-artifact(Whatever) {
+multi build-artifact(Whatever, Capture :$parameters) {
+    my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Given.new,
+        :@injectors,
     )
 }
-multi build-artifact(:$class!) {
+multi build-artifact(:$class!, Capture :$parameters) {
+    my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Factory.new(:$class),
+        :@injectors,
     )
 }
-multi build-artifact(&builder) {
+multi build-artifact(&builder, Capture :$parameters) {
+    my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Built.new(:&builder),
+        :@injectors,
     )
 }
 multi build-artifact(Cool $value) {
