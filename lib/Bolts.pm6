@@ -16,6 +16,17 @@ class Blueprint::Factory does Blueprint {
     method get($c, Capture $args) { $!class.new(|$args) }
 }
 
+role Locator { ... }
+class Register { ... }
+
+class Blueprint::Acquired does Blueprint {
+    has @.path;
+    method get($c, Capture $args) {
+        my $locator = $c ~~ Locator ?? $c !! Register.new(:bolts-base($c));
+        $locator.acquire(@!path, |$args);
+    }
+}
+
 class Blueprint::Given does Blueprint {
     has $.key;
 
@@ -54,6 +65,8 @@ class Blueprint::Literal does Blueprint {
 class Artifact { ... }
 
 role Locator {
+    method bolts-base() { self }
+
     multi method acquire($path, |args) {
         self.acquire(($path,), |args);
     }
@@ -61,7 +74,7 @@ role Locator {
     multi method acquire(@path is copy, |args) {
         my $start = 0;
         my @so-far;
-        my $c = self;
+        my $c = self.bolts-base;
         if @path && @path[0] eq '/' {
             push @so-far, @path[0];
             $start++;
@@ -69,7 +82,7 @@ role Locator {
             if self.^can('bolts-root') {
                 $c = self.bolts-root // self;
                 return $c.acquire(@path[$start .. *-1], |args)
-                    if $c !=== self and $c ~~ Locator;
+                    if $c !=== self.bolts-base and $c ~~ Locator;
             }
         }
 
@@ -142,6 +155,11 @@ role Container is Locator {
             self;
         }
     }
+}
+
+class Register is Locator {
+    has $.bolts-base;
+    method bolts-base { $!bolts-base }
 }
 
 role Injector { }
@@ -280,6 +298,13 @@ multi build-artifact(&builder, Capture :$parameters) {
     my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Built.new(:&builder),
+        :@injectors,
+    )
+}
+multi build-artifact(:@path, Capture :$parameters) {
+    my @injectors = build-parameters($parameters);
+    \(
+        blueprint => Blueprint::Acquired.new(:@path),
         :@injectors,
     )
 }

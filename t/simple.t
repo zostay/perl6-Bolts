@@ -5,6 +5,8 @@ use Test;
 
 class Foo does Bolts::Container {
     has $.stuff;
+
+    method root-acquired(|) is artifact(path => </ literal>) { * }
 }
 
 class Simple does Bolts::Container {
@@ -15,7 +17,7 @@ class Simple does Bolts::Container {
     ) { * }
 
     method foo(|) is artifact(:class(Foo)) { * }
-    method foo-given(|) is artifact(
+    method foo-param(|) is artifact(
         class      => Foo,
         parameters => \(stuff => 'some stuff'),
     ) { * }
@@ -42,9 +44,15 @@ is $simple.counter, 2, 'first simple.counter is 2';
 is $simple.counter, 3, 'first simple.counter is 3';
 isa-ok $simple.^methods.first(*.name eq 'counter').artifact.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the artifact itself';
 
-is $simple.acquire(<foo-given stuff>), 'some stuff', 'acquisition works';
+is $simple.acquire(<foo-param stuff>), 'some stuff', 'acquisition works';
 is $simple.acquire([ foo => \(stuff => 'other stuff'), 'stuff' ]), 'other stuff', 'acquisition with intermediate args works';
 is $foo.acquire(<stuff>), 'ffuts', 'acquisition from foo works';
-is $foo.acquire(</ foo-given stuff>), 'some stuff', 'acquisition back through root works';
+is $foo.acquire(</ foo-param stuff>), 'some stuff', 'acquisition back through root works';
+
+cmp-ok $foo.bolts-base, '===', $foo, 'foo.bolts-base === foo';
+cmp-ok $foo.bolts-parent, '===', $simple, 'foo.bolts-parent === simple';
+cmp-ok $foo.bolts-root, '===', $simple, 'foo.bolts-root === simple';
+is $foo.root-acquired, 42, 'foo.root-acquired works';
+is $simple.foo-param.root-acquired, 42, 'simple.foo-param.root-acquired works';
 
 done-testing;
