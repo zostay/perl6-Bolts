@@ -10,6 +10,9 @@ class Foo {
 class Simple {
     method literal(|) is artifact(42) { * }
     method given(|) is artifact(*) { * }
+    method given-param(|) is artifact(*,
+        parameters => \(43, opt => 4),
+    ) { * }
 
     method foo(|) is artifact(:class(Foo)) { * }
 
@@ -21,6 +24,9 @@ is $simple.literal, 42, 'got a 42 from simple.literal';
 is $simple.^methods.first(*.name eq 'literal').artifact.blueprint.value, 42, 'we can get at simple.literal the artifact itself';
 is $simple.given('not very useful'), 'not very useful', 'got a not very useful from simple.given';
 isa-ok $simple.^methods.first(*.name eq 'given').artifact.blueprint, Bolts::Blueprint::Given, 'we can get at simple.given the artifact itself';
+
+is $simple.given-param, 43, 'got correct things from simple.given-param';
+is $simple.given(43, opt => 4), 43, 'simple.given is the same as simple.given-param when given the same parameters';
 
 my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;

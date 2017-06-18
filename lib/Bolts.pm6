@@ -153,7 +153,7 @@ multi build-parameters(Capture:D $cons) {
             }
 
             take Parameter::Positional.new(
-                blueprint => $blueprint;
+                blueprint => $blueprint,
             );
         }
 
@@ -223,7 +223,14 @@ role Trait::Artifact[Artifact $artifact, Method $orig] {
 }
 
 multi trait_mod:<is> (Method $m, :$artifact) is export {
-    my $a = build-artifact(|$artifact);
+    # Since $artifact gets treated like a list, we have to fake it in like
+    # it's a capture:
+    my %c = $artifact.list.classify({ $_ ~~ Pair ?? 'hash' !! 'list' });
+    my %hash = %c<hash> // ();
+    my @list = %c<list>:exists ?? |%c<list> !! ();
+    my $artifact-capture = Capture.new(:@list, :%hash);
+
+    my $a = build-artifact(|$artifact-capture);
     my $orig = $m.clone;
     $m does Trait::Artifact[$a, $orig];
 }
