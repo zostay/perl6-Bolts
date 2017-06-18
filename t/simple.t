@@ -3,11 +3,11 @@ use v6;
 use Bolts;
 use Test;
 
-class Foo {
+class Foo does Bolts::Container {
     has $.stuff;
 }
 
-class Simple {
+class Simple does Bolts::Container {
     method literal(|) is artifact(42) { * }
     method given(|) is artifact(*) { * }
     method given-param(|) is artifact(*,
@@ -15,6 +15,10 @@ class Simple {
     ) { * }
 
     method foo(|) is artifact(:class(Foo)) { * }
+    method foo-given(|) is artifact(
+        class      => Foo,
+        parameters => \(stuff => 'some stuff'),
+    ) { * }
 
     method counter(|) is artifact({ ++$ }) { * }
 }
@@ -37,5 +41,10 @@ is $simple.counter, 1, 'first simple.counter is 1';
 is $simple.counter, 2, 'first simple.counter is 2';
 is $simple.counter, 3, 'first simple.counter is 3';
 isa-ok $simple.^methods.first(*.name eq 'counter').artifact.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the artifact itself';
+
+is $simple.acquire(<foo-given stuff>), 'some stuff', 'acquisition works';
+is $simple.acquire([ foo => \(stuff => 'other stuff'), 'stuff' ]), 'other stuff', 'acquisition with intermediate args works';
+is $foo.acquire(<stuff>), 'ffuts', 'acquisition from foo works';
+is $foo.acquire(</ foo-given stuff>), 'some stuff', 'acquisition back through root works';
 
 done-testing;
