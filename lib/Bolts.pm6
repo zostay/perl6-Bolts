@@ -71,6 +71,8 @@ role Injector { }
 
 role Parameter is Injector {
     method get($c, Capture $args) { ... }
+
+    method append-capture($value, @list, %hash) { ... }
 }
 
 class Parameter::NamedSlip does Parameter {
@@ -79,6 +81,10 @@ class Parameter::NamedSlip does Parameter {
     method get($c, Capture $args) {
         |$!blueprint.get($c, $args);
     }
+
+    method append-capture($value, @list, %hash) {
+        push %hash, |$value;
+    }
 }
 
 class Parameter::Slip does Parameter {
@@ -86,6 +92,10 @@ class Parameter::Slip does Parameter {
 
     method get($c, Capture $args) {
         |$!blueprint.get($c, $args);
+    }
+
+    method append-capture($value, @list, %hash) {
+        push @list ,|$value;
     }
 }
 
@@ -96,6 +106,10 @@ class Parameter::Named does Parameter {
     method get($c, Capture $args) {
         $!key => $!blueprint.get($c, $args);
     }
+
+    method append-capture($value, @list, %hash) {
+        push %hash, $value;
+    }
 }
 
 class Parameter::Positional does Parameter {
@@ -104,37 +118,28 @@ class Parameter::Positional does Parameter {
     method get($c, Capture $args) {
         $!blueprint.get($c, $args);
     }
+
+    method append-capture($value, @list, %hash) {
+        push @list, $value;
+    }
 }
 
 class Artifact {
     has $.blueprint is required;
     has @.injectors;
 
-    method get($c, Capture $args) {
+    method build-capture($c, $args) {
         my (@list, %hash);
         for @!injectors.grep(Parameter) {
             my $value = .get($c, $args);
-            when Parameter::Positional {
-                push @list, $value;
-            }
-            when Parameter::Named {
-                push %hash, $value;
-            }
-            when Parameter::Slip {
-                push @list, |$value;
-            }
-            when Parameter::NamedSlip {
-                push %hash, |$value;
-            }
-            default {
-                given .get($c, $args) {
-                    when Pair { push %hash, $_ }
-                    default { push @list, $_ }
-                }
-            }
+            .append-capture($value, @list, %hash);
         }
 
-        my $inject-args = Capture.new(:@list, :%hash);
+        Capture.new(:@list, :%hash);
+    }
+
+    method get($c, Capture $args) {
+        my $inject-args = self.build-capture($c, $args);
 
         $!blueprint.get($c, $inject-args);
     }
