@@ -205,7 +205,13 @@ class Scope::Singleton does Scope does Rooted {
     }
 }
 
-role Injector { }
+role Injector {
+    has $.blueprint;
+
+    method get-value($c, Capture $args) {
+        $!blueprint.get($c, $args);
+    }
+}
 
 role Parameter is Injector {
     method get($c, Capture $args) { ... }
@@ -214,10 +220,8 @@ role Parameter is Injector {
 }
 
 class Parameter::NamedSlip does Parameter {
-    has $.blueprint;
-
     method get($c, Capture $args) {
-        |$!blueprint.get($c, $args);
+        |self.get-value($c, $args);
     }
 
     method append-capture($value, @list, %hash) {
@@ -226,10 +230,8 @@ class Parameter::NamedSlip does Parameter {
 }
 
 class Parameter::Slip does Parameter {
-    has $.blueprint;
-
     method get($c, Capture $args) {
-        |$!blueprint.get($c, $args);
+        |self.get-value($c, $args);
     }
 
     method append-capture($value, @list, %hash) {
@@ -239,10 +241,9 @@ class Parameter::Slip does Parameter {
 
 class Parameter::Named does Parameter {
     has $.key;
-    has $.blueprint;
 
     method get($c, Capture $args) {
-        $!key => $!blueprint.get($c, $args);
+        $!key => self.get-value($c, $args);
     }
 
     method append-capture($value, @list, %hash) {
@@ -251,14 +252,58 @@ class Parameter::Named does Parameter {
 }
 
 class Parameter::Positional does Parameter {
-    has $.blueprint;
-
     method get($c, Capture $args) {
-        $!blueprint.get($c, $args);
+        self.get-value($c, $args);
     }
 
     method append-capture($value, @list, %hash) {
         push @list, $value;
+    }
+}
+
+role Mutator is Injector {
+    method mutate($c, $object, Capture $args) { ... }
+}
+
+class Mutator::Setter does Mutator {
+    has $.attribute;
+
+    method mutate($c, $object, Capture $args) {
+        $object."$!attribute"() = self.get-value($c, $args);
+    }
+}
+
+class Mutator::Call does Mutator {
+    has $.method;
+
+    method mutate($c, $object, Capture $args) {
+        $object."$!method"(|self.get-value($c, $args));
+    }
+}
+
+class Mutator::Store does Mutator {
+    has $.key;
+    has $.at;
+
+    method mutate($c, $object, Capture $args) {
+        given self.get-value($c, $args) -> $value {
+            if $!key.defined {
+                if $!key.elems > 1 {
+                    $object{ @($!key) } = |$value;
+                }
+                else {
+                    $object{ $!key } = $value;
+                }
+            }
+            elsif $!at.defined {
+                if $!at.elems > 1 {
+                    $object[ @($!at) ] = |$value;
+                }
+                else {
+                    $object[ $!at ] = $value;
+                }
+            }
+        }
     }
 }
 
@@ -277,6 +322,12 @@ class Artifact {
         Capture.new(:@list, :%hash);
     }
 
+    method mutate($c, $object, $args) {
+        for @!injectors.grep(Mutator) {
+            .mutate($c, $object, $args);
+        }
+    }
+
     method get($c, Capture $args) {
         my $obj = $!scope.get($c, self);
         return $obj with $obj;
@@ -284,6 +335,8 @@ class Artifact {
         my $inject-args = self.build-capture($c, $args);
 
         $obj = $!blueprint.get($c, $inject-args);
+
+        self.mutate($c, $obj, $args);
 
         $obj.bolts-parent //= $c if $obj ~~ Container;
 
@@ -328,33 +381,79 @@ multi build-parameters(Any:U) {
     )
 }
 
+multi build-mutators(@mutators) {
+    gather for @mutators -> $mutator {
+        if $mutator ~~ Mutator {
+            take $mutator;
+        }
+        elsif $mutator ~~ Hash {
+            my $to = $mutator<to>;
+            $to = Blueprint::Literal.new(value => $to)
+                if $to !~~ Blueprint;
+
+            if $mutator<set>.defined {
+                take Mutator::Setter.new(
+                    attribute => $mutator<set>,
+                    blueprint => $to,
+                );
+            }
+            elsif $mutator<at>.defined {
+                take Mutator::Store.new(
+                    at        => $mutator<at>,
+                    blueprint => $to,
+                );
+            }
+            elsif $mutator<key>.defined {
+                take Mutator::Store.new(
+                    key       => $mutator<key>,
+                    blueprint => $to,
+                );
+            }
+            elsif $mutator<call>.defined {
+                take Mutator::Store.new(
+                    method    => $mutator<call>,
+                    blueprint => $to,
+                );
+            }
+        }
+    }
+}
+multi build-mutators(Any:U) { () }
+
+sub build-injectors($parameters, $mutators) {
+    flat(
+        build-parameters($parameters),
+        build-mutators($mutators),
+    )
+}
+
 proto build-artifact(|) { Artifact.new(|{*}); }
-multi build-artifact(Whatever, Capture :$parameters, Scope :$scope = Scope::Prototype) {
-    my @injectors = build-parameters($parameters);
+multi build-artifact(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+    my @injectors = build-injectors($parameters, $mutators);
     \(
         blueprint => Blueprint::Given.new,
         :@injectors,
         :$scope,
     )
 }
-multi build-artifact(:$class!, Capture :$parameters, Scope :$scope = Scope::Prototype) {
-    my @injectors = build-parameters($parameters);
+multi build-artifact(:$class!, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+    my @injectors = build-injectors($parameters, $mutators);
     \(
         blueprint => Blueprint::Factory.new(:$class),
         :@injectors,
         :$scope,
     )
 }
-multi build-artifact(&builder, Capture :$parameters, Scope :$scope = Scope::Prototype) {
-    my @injectors = build-parameters($parameters);
+multi build-artifact(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+    my @injectors = build-injectors($parameters, $mutators);
     \(
         blueprint => Blueprint::Built.new(:&builder),
         :@injectors,
         :$scope,
     )
 }
-multi build-artifact(:@path, Capture :$parameters, Scope :$scope = Scope::Prototype) {
-    my @injectors = build-parameters($parameters);
+multi build-artifact(:@path, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+    my @injectors = build-injectors($parameters, $mutators);
     \(
         blueprint => Blueprint::Acquired.new(:@path),
         :@injectors,

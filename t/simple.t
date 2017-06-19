@@ -4,7 +4,7 @@ use Bolts;
 use Test;
 
 class Foo does Bolts::Container {
-    has $.stuff;
+    has $.stuff is rw;
 
     method root-acquired(|) is artifact(path => </ literal>) { * }
 }
@@ -20,6 +20,12 @@ class Simple does Bolts::Container {
     method foo-param(|) is artifact(
         class      => Foo,
         parameters => \(stuff => 'some stuff'),
+    ) { * }
+    method foo-setter(|) is artifact(
+        class      => Foo,
+        mutators   => (
+            { set => 'stuff', to  => 14, },
+        ),
     ) { * }
 
     method counter(|) is artifact({ ++$ }) { * }
@@ -41,6 +47,8 @@ my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;
 is $foo.stuff, 'ffuts', 'got ffuts from foo.stuff';
 is $simple.^methods.first(*.name eq 'foo').artifact.blueprint.class, Foo, 'we can get at simple.foo the artifact itself';
+
+is $simple.foo-setter.stuff, 14, 'got 14 from simple.foo-setter.stuff';
 
 is $simple.counter, 1, 'first simple.counter is 1';
 is $simple.counter, 2, 'first simple.counter is 2';
