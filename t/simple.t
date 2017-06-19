@@ -23,6 +23,9 @@ class Simple does Bolts::Container {
     ) { * }
 
     method counter(|) is artifact({ ++$ }) { * }
+
+    method random(|) is artifact({ rand }) { * }
+    method random-singleton(|) is artifact({ rand }, scope => Bolts::Scope::Singleton) { * }
 }
 
 my $simple = Simple.new;
@@ -54,5 +57,12 @@ cmp-ok $foo.bolts-parent, '===', $simple, 'foo.bolts-parent === simple';
 cmp-ok $foo.bolts-root, '===', $simple, 'foo.bolts-root === simple';
 is $foo.root-acquired, 42, 'foo.root-acquired works';
 is $simple.foo-param.root-acquired, 42, 'simple.foo-param.root-acquired works';
+
+constant &isn't = &isnt; # sometimes it's the simple things
+
+my $rp = $simple.random;
+isn't $simple.random, $rp, 'random changes each time in default scope';
+my $rs = $simple.random-singleton;
+is $simple.random-singleton, $rs, 'random is the same in singleton scope';
 
 done-testing;

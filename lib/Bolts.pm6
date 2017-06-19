@@ -136,30 +136,73 @@ role Locator {
     }
 }
 
-role Container is Locator {
-#     # TODO Figure out how to make this work...
-#     trusts Artifact;
-#     has $.bolts-parent;
-    has $.bolts-parent is rw;
-
-    method bolts-root() {
-        with $!bolts-parent {
-            if $!bolts-parent.^can('bolts-root') {
-                $!bolts-parent.bolts-root;
-            }
-            else {
-                $!bolts-parent;
-            }
+role Rooted {
+    method bolts-root($base? is copy) {
+        $base //= do if self.^can('bolts-base') {
+            self.bolts-base;
         }
         else {
             self;
         }
+
+        loop {
+            return $base.bolts-root
+                if $base !=== self && $base.^can('bolts-root');
+
+            last unless $base.^can('bolts-parent');
+
+            my $parent = $base.bolts-parent;
+            last without $parent;
+
+            $base = $parent;
+        }
+
+        $base;
     }
+}
+
+role Container is Locator is Rooted {
+#     # TODO Figure out how to make this work...
+#     trusts Artifact;
+#     has $.bolts-parent;
+    has $.bolts-parent is rw;
 }
 
 class Register is Locator {
     has $.bolts-base;
     method bolts-base { $!bolts-base }
+}
+
+role SingletonScope {
+    has %.bolts-singletons;
+}
+
+role Scope {
+    method put($c, $artifact, $object) { ... }
+    method get($c, $artifact) { ... }
+}
+
+class Scope::Prototype does Scope {
+    method put($c, $artifact, $object) { }
+    method get($c, $artifact) { }
+}
+
+class Scope::Singleton does Scope does Rooted {
+    method assure-singleton-scope($c) {
+        my $root = self.bolts-root($c);
+        $root does SingletonScope unless $root ~~ SingletonScope;
+        $root;
+    }
+
+    method put($c, $artifact, $object) {
+        my $scope = self.assure-singleton-scope($c);
+        $scope.bolts-singletons{ $artifact.WHICH } = $object;
+    }
+
+    method get($c, $artifact) {
+        my $scope = self.assure-singleton-scope($c);
+        $scope.bolts-singletons{ $artifact.WHICH };
+    }
 }
 
 role Injector { }
@@ -221,6 +264,7 @@ class Parameter::Positional does Parameter {
 
 class Artifact {
     has Blueprint $.blueprint is required;
+    has Scope $.scope is required;
     has Injector @.injectors;
 
     method build-capture($c, $args) {
@@ -234,11 +278,16 @@ class Artifact {
     }
 
     method get($c, Capture $args) {
+        my $obj = $!scope.get($c, self);
+        return $obj with $obj;
+
         my $inject-args = self.build-capture($c, $args);
 
-        my $obj = $!blueprint.get($c, $inject-args);
+        $obj = $!blueprint.get($c, $inject-args);
 
         $obj.bolts-parent //= $c if $obj ~~ Container;
+
+        $!scope.put($c, self, $obj);
 
         $obj;
     }
@@ -280,37 +329,42 @@ multi build-parameters(Any:U) {
 }
 
 proto build-artifact(|) { Artifact.new(|{*}); }
-multi build-artifact(Whatever, Capture :$parameters) {
+multi build-artifact(Whatever, Capture :$parameters, Scope :$scope = Scope::Prototype) {
     my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Given.new,
         :@injectors,
+        :$scope,
     )
 }
-multi build-artifact(:$class!, Capture :$parameters) {
+multi build-artifact(:$class!, Capture :$parameters, Scope :$scope = Scope::Prototype) {
     my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Factory.new(:$class),
         :@injectors,
+        :$scope,
     )
 }
-multi build-artifact(&builder, Capture :$parameters) {
+multi build-artifact(&builder, Capture :$parameters, Scope :$scope = Scope::Prototype) {
     my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Built.new(:&builder),
         :@injectors,
+        :$scope,
     )
 }
-multi build-artifact(:@path, Capture :$parameters) {
+multi build-artifact(:@path, Capture :$parameters, Scope :$scope = Scope::Prototype) {
     my @injectors = build-parameters($parameters);
     \(
         blueprint => Blueprint::Acquired.new(:@path),
         :@injectors,
+        :$scope,
     )
 }
 multi build-artifact(Cool $value) {
     \(
         blueprint => Blueprint::Literal.new(:$value),
+        scope     => Scope::Prototype,
     )
 }
 
