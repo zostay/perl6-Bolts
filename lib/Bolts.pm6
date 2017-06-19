@@ -206,6 +206,22 @@ class Scope::Singleton does Scope does Rooted {
     }
 }
 
+class Scope::Dynamic does Scope does Rooted {
+    has $.dynamic = "%*BOLTS-DYNAMIC";
+
+    multi method new($dynamic) { self.new(:$dynamic) }
+
+    method put($c, $artifact, $object) {
+        DYNAMIC::{ $!dynamic }{ $artifact.WHICH } = $object
+            if DYNAMIC::{ $!dynamic }.defined;
+    }
+
+    method get($c, $artifact) {
+        DYNAMIC::{ $!dynamic }{ $artifact.WHICH }
+            if DYNAMIC::{ $!dynamic }.defined;
+    }
+}
+
 role Injector {
     has $.blueprint;
 

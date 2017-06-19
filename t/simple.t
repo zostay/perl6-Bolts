@@ -32,6 +32,7 @@ class Simple does Bolts::Container {
 
     method random(|) is artifact({ rand }) { * }
     method random-singleton(|) is artifact({ rand }, scope => Bolts::Scope::Singleton) { * }
+    method random-dynamic(|) is artifact({ rand }, scope => Bolts::Scope::Dynamic.new('%*my-rand')) { * }
 }
 
 my $simple = Simple.new;
@@ -72,5 +73,13 @@ my $rp = $simple.random;
 isn't $simple.random, $rp, 'random changes each time in default scope';
 my $rs = $simple.random-singleton;
 is $simple.random-singleton, $rs, 'random is the same in singleton scope';
+
+my $rd;
+{
+    my %*my-rand;
+    $rd = $simple.random-dynamic;
+    is $simple.random-dynamic, $rd, 'random is the same within dynamic scope';
+}
+isn't $simple.random-dynamic, $rd, 'random is not the same outside dynamic scope';
 
 done-testing;
