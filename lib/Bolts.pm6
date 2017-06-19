@@ -220,8 +220,8 @@ class Parameter::Positional does Parameter {
 }
 
 class Artifact {
-    has $.blueprint is required;
-    has @.injectors;
+    has Blueprint $.blueprint is required;
+    has Injector @.injectors;
 
     method build-capture($c, $args) {
         my (@list, %hash);
