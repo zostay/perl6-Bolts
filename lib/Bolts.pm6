@@ -13,7 +13,8 @@ class Blueprint::Built does Blueprint {
 
 class Blueprint::Factory does Blueprint {
     has $.class;
-    method get($c, Capture $args) { $!class.new(|$args) }
+    has $.method = "new";
+    method get($c, Capture $args) { $!class."$!method"(|$args) }
 }
 
 role Locator { ... }
@@ -346,23 +347,36 @@ class Artifact {
     }
 }
 
+multi build-blueprint(Blueprint:D $blueprint) {
+    $blueprint;
+}
+multi build-blueprint(Whatever) {
+    Blueprint::Given.new;
+}
+multi build-blueprint(:$class!, :$method = "new") {
+    Blueprint::Factory.new(:$class, :$method);
+}
+multi build-blueprint(&builder) {
+    Blueprint::Built.new(:&builder);
+}
+multi build-blueprint(:@path) {
+    Blueprint::Acquired.new(:@path);
+}
+multi build-blueprint(Cool $value) {
+    Blueprint::Literal.new(:$value);
+}
+
 multi build-parameters(Capture:D $cons) {
     gather {
         for $cons.list -> $blueprint is copy {
-            if $blueprint !~~ Blueprint {
-                $blueprint = Blueprint::Literal.new(value => $blueprint);
-            }
-
+            $blueprint = build-blueprint(|$blueprint);
             take Parameter::Positional.new(
                 blueprint => $blueprint,
             );
         }
 
         for $cons.hash.kv -> $key, $blueprint is copy {
-            if $blueprint !~~ Blueprint {
-                $blueprint = Blueprint::Literal.new(value => $blueprint);
-            }
-
+            $blueprint = build-blueprint(|$blueprint);
             take Parameter::Named.new(
                 key       => $key,
                 blueprint => $blueprint,
@@ -388,8 +402,7 @@ multi build-mutators(@mutators) {
         }
         elsif $mutator ~~ Hash {
             my $to = $mutator<to>;
-            $to = Blueprint::Literal.new(value => $to)
-                if $to !~~ Blueprint;
+            $to = build-blueprint(|$to);
 
             if $mutator<set>.defined {
                 take Mutator::Setter.new(
@@ -430,41 +443,28 @@ sub build-injectors($parameters, $mutators) {
 proto build-artifact(|) { Artifact.new(|{*}); }
 multi build-artifact(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
-    \(
-        blueprint => Blueprint::Given.new,
-        :@injectors,
-        :$scope,
-    )
+    my $blueprint = build-blueprint(*);
+    \(:$blueprint, :@injectors, :$scope)
 }
-multi build-artifact(:$class!, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-artifact(:$class!, :$method = "new", Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
-    \(
-        blueprint => Blueprint::Factory.new(:$class),
-        :@injectors,
-        :$scope,
-    )
+    my $blueprint = build-blueprint(:$class, :$method);
+    \(:$blueprint, :@injectors, :$scope)
 }
 multi build-artifact(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
-    \(
-        blueprint => Blueprint::Built.new(:&builder),
-        :@injectors,
-        :$scope,
-    )
+    my $blueprint = build-blueprint(&builder);
+    \(:$blueprint, :@injectors, :$scope)
 }
 multi build-artifact(:@path, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
-    \(
-        blueprint => Blueprint::Acquired.new(:@path),
-        :@injectors,
-        :$scope,
-    )
+    my $blueprint = build-blueprint(:@path);
+    \(:$blueprint, :@injectors, :$scope)
 }
 multi build-artifact(Cool $value) {
-    \(
-        blueprint => Blueprint::Literal.new(:$value),
-        scope     => Scope::Prototype,
-    )
+    my $blueprint = build-blueprint($value);
+    my $scope     = Scope::Prototype;
+    \(:$blueprint, :$scope)
 }
 
 role Trait::Artifact[Artifact $artifact, Method $orig] {
