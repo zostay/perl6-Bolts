@@ -41,8 +41,8 @@ is $simple.^methods.first(*.name eq 'literal').factory.blueprint.value, 42, 'we 
 is $simple.given('not very useful'), 'not very useful', 'got a not very useful from simple.given';
 isa-ok $simple.^methods.first(*.name eq 'given').factory.blueprint, Bolts::Blueprint::Given, 'we can get at simple.given the factory itself';
 
-is $simple.given-param, 43, 'got correct things from simple.given-param';
-is $simple.given(43, opt => 4), 43, 'simple.given is the same as simple.given-param when given the same parameters';
+is-deeply $simple.given-param, \(43, opt => 4), 'got correct things from simple.given-param';
+is-deeply $simple.given(43, opt => 4), \(43, opt => 4), 'simple.given is the same as simple.given-param when given the same parameters';
 
 my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;
