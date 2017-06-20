@@ -63,7 +63,7 @@ class Blueprint::Literal does Blueprint {
     method get($c, Capture $args) { $!value }
 }
 
-class Artifact { ... }
+class Factory { ... }
 
 role Locator {
     method bolts-base() { self }
@@ -164,7 +164,7 @@ role Rooted {
 
 role Container is Locator is Rooted {
 #     # TODO Figure out how to make this work...
-#     trusts Artifact;
+#     trusts Factory;
 #     has $.bolts-parent;
     has $.bolts-parent is rw;
 }
@@ -179,13 +179,13 @@ role SingletonScope {
 }
 
 role Scope {
-    method put($c, $artifact, $object) { ... }
-    method get($c, $artifact) { ... }
+    method put($c, $factory, $object) { ... }
+    method get($c, $factory) { ... }
 }
 
 class Scope::Prototype does Scope {
-    method put($c, $artifact, $object) { }
-    method get($c, $artifact) { }
+    method put($c, $factory, $object) { }
+    method get($c, $factory) { }
 }
 
 class Scope::Singleton does Scope does Rooted {
@@ -195,14 +195,14 @@ class Scope::Singleton does Scope does Rooted {
         $root;
     }
 
-    method put($c, $artifact, $object) {
+    method put($c, $factory, $object) {
         my $scope = self.assure-singleton-scope($c);
-        $scope.bolts-singletons{ $artifact.WHICH } = $object;
+        $scope.bolts-singletons{ $factory.WHICH } = $object;
     }
 
-    method get($c, $artifact) {
+    method get($c, $factory) {
         my $scope = self.assure-singleton-scope($c);
-        $scope.bolts-singletons{ $artifact.WHICH };
+        $scope.bolts-singletons{ $factory.WHICH };
     }
 }
 
@@ -211,13 +211,13 @@ class Scope::Dynamic does Scope does Rooted {
 
     multi method new($dynamic) { self.new(:$dynamic) }
 
-    method put($c, $artifact, $object) {
-        DYNAMIC::{ $!dynamic }{ $artifact.WHICH } = $object
+    method put($c, $factory, $object) {
+        DYNAMIC::{ $!dynamic }{ $factory.WHICH } = $object
             if DYNAMIC::{ $!dynamic }.defined;
     }
 
-    method get($c, $artifact) {
-        DYNAMIC::{ $!dynamic }{ $artifact.WHICH }
+    method get($c, $factory) {
+        DYNAMIC::{ $!dynamic }{ $factory.WHICH }
             if DYNAMIC::{ $!dynamic }.defined;
     }
 }
@@ -324,7 +324,7 @@ class Mutator::Store does Mutator {
     }
 }
 
-class Artifact {
+class Factory {
     has Blueprint $.blueprint is required;
     has Scope $.scope is required;
     has Injector @.injectors;
@@ -362,6 +362,13 @@ class Artifact {
         $obj;
     }
 }
+
+###########################################################
+###
+### TODO This section of subs should be converted into the
+### meta container used to build Bolts components.
+###
+###
 
 multi build-blueprint(Blueprint:D $blueprint) {
     $blueprint;
@@ -456,56 +463,59 @@ sub build-injectors($parameters, $mutators) {
     )
 }
 
-proto build-artifact(|) { Artifact.new(|{*}); }
-multi build-artifact(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+proto build-factory(|) { Factory.new(|{*}); }
+multi build-factory(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
     my $blueprint = build-blueprint(*);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-artifact(:$class!, :$method = "new", Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(:$class!, :$method = "new", Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
     my $blueprint = build-blueprint(:$class, :$method);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-artifact(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
     my $blueprint = build-blueprint(&builder);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-artifact(:@path, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(:@path, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
     my @injectors = build-injectors($parameters, $mutators);
     my $blueprint = build-blueprint(:@path);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-artifact(Cool $value) {
+multi build-factory(Cool $value) {
     my $blueprint = build-blueprint($value);
     my $scope     = Scope::Prototype;
     \(:$blueprint, :$scope)
 }
 
-role Trait::Artifact[Artifact $artifact, Method $orig] {
-    method artifact { $artifact }
+### END OF META
+###########################################################
+
+role Trait::Factory[Factory $factory, Method $orig] {
+    method factory { $factory }
 
     method CALL-ME($self, |args) {
         my $args = $self.$orig(|args);
         $args = args if $args ~~ Whatever;
 
         Proxy.new(
-            FETCH => method () { $artifact.get($self, $args) },
-            STORE => method ($v) { die 'storing to an artifact is not permitted' },
+            FETCH => method () { $factory.get($self, $args) },
+            STORE => method ($v) { die 'storing to an factory is not permitted' },
         );
     }
 }
 
-multi trait_mod:<is> (Method $m, :$artifact) is export {
-    # Since $artifact gets treated like a list, we have to fake it in like
+multi trait_mod:<is> (Method $m, :$factory) is export {
+    # Since $factory gets treated like a list, we have to fake it in like
     # it's a capture:
-    my %c = $artifact.list.classify({ $_ ~~ Pair ?? 'hash' !! 'list' });
+    my %c = $factory.list.classify({ $_ ~~ Pair ?? 'hash' !! 'list' });
     my %hash = %c<hash> // ();
     my @list = %c<list>:exists ?? |%c<list> !! ();
-    my $artifact-capture = Capture.new(:@list, :%hash);
+    my $factory-capture = Capture.new(:@list, :%hash);
 
-    my $a = build-artifact(|$artifact-capture);
+    my $a = build-factory(|$factory-capture);
     my $orig = $m.clone;
-    $m does Trait::Artifact[$a, $orig];
+    $m does Trait::Factory[$a, $orig];
 }

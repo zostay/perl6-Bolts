@@ -6,40 +6,40 @@ use Test;
 class Foo does Bolts::Container {
     has $.stuff is rw;
 
-    method root-acquired(|) is artifact(path => </ literal>) { * }
+    method root-acquired(|) is factory(path => </ literal>) { * }
 }
 
 class Simple does Bolts::Container {
-    method literal(|) is artifact(42) { * }
-    method given(|) is artifact(*) { * }
-    method given-param(|) is artifact(*,
+    method literal(|) is factory(42) { * }
+    method given(|) is factory(*) { * }
+    method given-param(|) is factory(*,
         parameters => \(43, opt => 4),
     ) { * }
 
-    method foo(|) is artifact(:class(Foo)) { * }
-    method foo-param(|) is artifact(
+    method foo(|) is factory(:class(Foo)) { * }
+    method foo-param(|) is factory(
         class      => Foo,
         parameters => \(stuff => 'some stuff'),
     ) { * }
-    method foo-setter(|) is artifact(
+    method foo-setter(|) is factory(
         class      => Foo,
         mutators   => (
             { set => 'stuff', to  => 14, },
         ),
     ) { * }
 
-    method counter(|) is artifact({ ++$ }) { * }
+    method counter(|) is factory({ ++$ }) { * }
 
-    method random(|) is artifact({ rand }) { * }
-    method random-singleton(|) is artifact({ rand }, scope => Bolts::Scope::Singleton) { * }
-    method random-dynamic(|) is artifact({ rand }, scope => Bolts::Scope::Dynamic.new('%*my-rand')) { * }
+    method random(|) is factory({ rand }) { * }
+    method random-singleton(|) is factory({ rand }, scope => Bolts::Scope::Singleton) { * }
+    method random-dynamic(|) is factory({ rand }, scope => Bolts::Scope::Dynamic.new('%*my-rand')) { * }
 }
 
 my $simple = Simple.new;
 is $simple.literal, 42, 'got a 42 from simple.literal';
-is $simple.^methods.first(*.name eq 'literal').artifact.blueprint.value, 42, 'we can get at simple.literal the artifact itself';
+is $simple.^methods.first(*.name eq 'literal').factory.blueprint.value, 42, 'we can get at simple.literal the factory itself';
 is $simple.given('not very useful'), 'not very useful', 'got a not very useful from simple.given';
-isa-ok $simple.^methods.first(*.name eq 'given').artifact.blueprint, Bolts::Blueprint::Given, 'we can get at simple.given the artifact itself';
+isa-ok $simple.^methods.first(*.name eq 'given').factory.blueprint, Bolts::Blueprint::Given, 'we can get at simple.given the factory itself';
 
 is $simple.given-param, 43, 'got correct things from simple.given-param';
 is $simple.given(43, opt => 4), 43, 'simple.given is the same as simple.given-param when given the same parameters';
@@ -47,14 +47,14 @@ is $simple.given(43, opt => 4), 43, 'simple.given is the same as simple.given-pa
 my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;
 is $foo.stuff, 'ffuts', 'got ffuts from foo.stuff';
-is $simple.^methods.first(*.name eq 'foo').artifact.blueprint.class, Foo, 'we can get at simple.foo the artifact itself';
+is $simple.^methods.first(*.name eq 'foo').factory.blueprint.class, Foo, 'we can get at simple.foo the factory itself';
 
 is $simple.foo-setter.stuff, 14, 'got 14 from simple.foo-setter.stuff';
 
 is $simple.counter, 1, 'first simple.counter is 1';
 is $simple.counter, 2, 'first simple.counter is 2';
 is $simple.counter, 3, 'first simple.counter is 3';
-isa-ok $simple.^methods.first(*.name eq 'counter').artifact.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the artifact itself';
+isa-ok $simple.^methods.first(*.name eq 'counter').factory.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the factory itself';
 
 is $simple.acquire(<foo-param stuff>), 'some stuff', 'acquisition works';
 is $simple.acquire([ foo => \(stuff => 'other stuff'), 'stuff' ]), 'other stuff', 'acquisition with intermediate args works';
