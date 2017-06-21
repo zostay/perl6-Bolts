@@ -36,6 +36,11 @@ class Simple does Bolts::Container {
     method random(|) is factory({ rand }) { * }
     method random-singleton(|) is factory({ rand }, scope => Bolts::Scope::Singleton) { * }
     method random-dynamic(|) is factory({ rand }, scope => Bolts::Scope::Dynamic.new('%*my-rand')) { * }
+
+    method build-method(|) is factory(
+        method () { self.counter },
+        scope => Bolts::Scope::Singleton,
+    ) { * }
 }
 
 my $simple = Simple.new;
@@ -56,8 +61,8 @@ is $simple.^methods.first(*.name eq 'foo').factory.blueprint.class, Foo, 'we can
 is $simple.foo-setter.stuff, 14, 'got 14 from simple.foo-setter.stuff';
 
 is $simple.counter, 1, 'first simple.counter is 1';
-is $simple.counter, 2, 'first simple.counter is 2';
-is $simple.counter, 3, 'first simple.counter is 3';
+is $simple.counter, 2, 'second simple.counter is 2';
+is $simple.counter, 3, 'third simple.counter is 3';
 isa-ok $simple.^methods.first(*.name eq 'counter').factory.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the factory itself';
 
 is $simple.acquire(<foo-param stuff>), 'some stuff', 'acquisition works';
@@ -85,5 +90,7 @@ my $rd;
     is $simple.random-dynamic, $rd, 'random is the same within dynamic scope';
 }
 isn't $simple.random-dynamic, $rd, 'random is not the same outside dynamic scope';
+
+is $simple.build-method, 4, 'simple.build-method is 4';
 
 done-testing;

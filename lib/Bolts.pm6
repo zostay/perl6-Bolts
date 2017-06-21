@@ -15,17 +15,21 @@ role Blueprint {
 }
 
 class Blueprint::Built does Blueprint {
-    has &.builder;
+    has &.builder is required;
 
     submethod TWEAK {
         if &!builder ~~ WhateverCode {
             my &code = &!builder;
-            &!builder = -> |c { code(c) };
+            &!builder = -> $c, |c { code(c) };
+        }
+        elsif &!builder !~~ Method {
+            my &code = &!builder;
+            &!builder = -> $c, |c { code(|c) };
         }
     }
 
     method build($c, Capture $args) {
-        &!builder.(|$args)
+        &!builder.($c, |$args)
     }
 }
 
