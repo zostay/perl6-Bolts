@@ -314,6 +314,63 @@ This blueprint returns whatever value it is given.
 
 This is the literal value to return from this blueprint.
 
+=head1 role Bolts::Locator
+
+This class provides methods for performing acquisition.
+
+=head2 method bolts-base
+
+    method bolts-base()
+
+This method should be overridden by any implementation that does not wish to use C<self> as the container to acquired from.
+
+=head2 method acquire
+
+    multi method acquire($path, |args)
+    multi method acquire(@path is copy, |args)
+
+The acquire method, when given a path and (optional) arguments, will locate the factory to resolve and resolve it with the arguments given.
+
+Each element of the path is a value that describes the name of the factory (or method) to locate and resolve next in the container hierarchy. If the container being located within is L<Associative>, the current path element is used as the key to look up on the map. If the container being located within is L<Positional>, the path element is used as the index to lookup in the list. Otherwise, the current path element will be treated as the name of a method to call on the container, if the method provides method with that name. Beyond that is an error.
+
+If, while descending the hierarchy, the container provides it's own C<acquire> method, that method will be called with the remaining path, allowing this service to be delegated to sub-containers.
+
+If the first path element is a slash ("/") and the current container provides a C<bolts-root> method, the object return will be used as the starting point for acquisition instead of C<bolts-base>. If it lacks a C<bolts-root>, but has a C<bolts-parent>, the parent container returned by it will be searched for C<bolts-root> and then C<bolts-parent> in the same way until either C<bolts-parent> returns an undefined value or no C<bolts-parent> method is found.
+
+Each path element may be given as a L<Pair>. If given as a pair, the key will be used as the lookup value and the value should be used as the arguments to pass to the factory, this allows for argument passing to locate on more complex container configurations in the middle of the hierarchy without requiring multiple calls to acquire.
+
+=head2 role Bolts::Rooted
+
+This is a helper role that provides a C<bolts-root> method to a container.
+
+=head3 method bolts-root
+
+    method bolts-root($base?)
+
+The bolts-root method will attempt to find the root container of either the passed C<$base> value or the return value of C<bolts-base> or (failing both of these) of C<self>.
+
+From here it will see if that object has a C<bolts-root> (aware of itself so it doesn't recurse) and use that value. If not avialable, it will look for a value from a C<bolts-parent> method and then repeat the process of locating a root from there. If that fails, this method will return the cotainer used as the original basis itself as the root (i.e., C<$base> or C<bolts-base> or C<self>).
+
+=head2 role Bolts::Container
+
+This role should be implemented by any object wishing to behave as a container. It also is a L<Bolts::Rooted> and L<Bolts::Locator>.
+
+=head3 has $.bolts-parent
+
+    has $.bolts-parent is rw
+
+This is the parent object of the container. It may be undefined to use this container as the root container.
+
+=head2 class Register
+
+This class provides a wrapper to provide a locator to another object that will act as the container. It is a L<Bolts::Locator>.
+
+=head3 has $.bolts-base
+
+    has $.bolts-base is required
+
+This may be set to any Perl object that can be used to locate on.
+
 =head1 GOALS
 
 The goal of this project is to provide the basis for building an entire common objects library, which will provide tools for building applications, with these aspects being emphasize:
@@ -536,7 +593,7 @@ role Container is Locator is Rooted {
 }
 
 class Register is Locator {
-    has $.bolts-base;
+    has $.bolts-base is required;
     method bolts-base { $!bolts-base }
 }
 
