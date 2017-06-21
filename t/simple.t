@@ -41,6 +41,10 @@ class Simple does Bolts::Container {
         method () { self.counter },
         scope => Bolts::Scope::Singleton,
     ) { * }
+
+    method acquired(|) is factory(
+        path => <counter>,
+    ) { * }
 }
 
 my $simple = Simple.new;
@@ -92,5 +96,6 @@ my $rd;
 isn't $simple.random-dynamic, $rd, 'random is not the same outside dynamic scope';
 
 is $simple.build-method, 4, 'simple.build-method is 4';
+is $simple.acquired, 5, 'simple.acquired is 5';
 
 done-testing;

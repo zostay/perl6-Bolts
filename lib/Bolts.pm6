@@ -34,7 +34,7 @@ class Blueprint::Built does Blueprint {
 }
 
 class Blueprint::MethodCall does Blueprint {
-    has $.class;
+    has $.class is required;
     has $.method = "new";
     method build($c, Capture $args) { $!class."$!method"(|$args) }
 }
@@ -413,8 +413,11 @@ multi build-blueprint(:$class!, :$method = "new", :$clone) {
 multi build-blueprint(&builder, :$clone) {
     Blueprint::Built.new(:&builder, :$clone);
 }
-multi build-blueprint(:@path, :$clone) {
+multi build-blueprint(:@path!, :$clone) {
     Blueprint::Acquired.new(:@path, :$clone);
+}
+multi build-blueprint(Str :$path!, :$clone) {
+    Blueprint::Acquired.new(:path(($path,)), :$clone);
 }
 multi build-blueprint(Cool $value, :$clone) {
     Blueprint::Literal.new(:$value, :$clone);
@@ -499,28 +502,33 @@ sub build-injectors($parameters, $mutators) {
 }
 
 proto build-factory(|) { Factory.new(|{*}); }
-multi build-factory(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(Whatever, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype, :$clone) {
     my @injectors = build-injectors($parameters, $mutators);
-    my $blueprint = build-blueprint(*);
+    my $blueprint = build-blueprint(*, :$clone);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-factory(:$class!, :$method = "new", Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(:$class!, :$method = "new", Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype, :$clone) {
     my @injectors = build-injectors($parameters, $mutators);
-    my $blueprint = build-blueprint(:$class, :$method);
+    my $blueprint = build-blueprint(:$class, :$method, :$clone);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-factory(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(&builder, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype, :$clone) {
     my @injectors = build-injectors($parameters, $mutators);
-    my $blueprint = build-blueprint(&builder);
+    my $blueprint = build-blueprint(&builder, :$clone);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-factory(:@path, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype) {
+multi build-factory(:@path!, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype, :$clone) {
     my @injectors = build-injectors($parameters, $mutators);
-    my $blueprint = build-blueprint(:@path);
+    my $blueprint = build-blueprint(:@path, :$clone);
     \(:$blueprint, :@injectors, :$scope)
 }
-multi build-factory(Cool $value) {
-    my $blueprint = build-blueprint($value);
+multi build-factory(Str :$path!, Capture :$parameters, :$mutators, Scope :$scope = Scope::Prototype, :$clone) {
+    my @injectors = build-injectors($parameters, $mutators);
+    my $blueprint = build-blueprint(:path(($path,)), :$clone);
+    \(:$blueprint, :@injectors, :$scope)
+}
+multi build-factory(Cool $value, :$clone) {
+    my $blueprint = build-blueprint($value, :$clone);
     my $scope     = Scope::Prototype;
     \(:$blueprint, :$scope)
 }
