@@ -2,6 +2,350 @@ unit module Bolts;
 
 use v6;
 
+=begin pod
+
+=NAME Bolts - an IoC framework for the Modern Perl
+
+=begin SYNOPSIS
+
+In F<myapp.yaml>:
+
+    ---
+    factories:
+        logger:
+            class: MyApp::Logger
+            parameters:
+                hash:
+                    config: { path: [ log-config ] }
+            scope: Singleton
+
+        log-config:
+            class: Hash
+            mutators:
+                - key: level
+                  to: INFO
+
+        start-request:
+            class: MyApp::Request
+            mutators:
+                - set: logger
+                  to: { path: [ logger ] }
+                - call: run
+
+and then in your app class, something like this:
+
+    use Bolts;
+
+    class MyApp is Container {
+        has $.config-file = "myapp.yaml".IO;
+        has $.config = Bolts::IO.load($!config-file);
+
+        method logger { self.acquire(<config loggger>) }
+        method start-request { self.acquire(<config start-request>) }
+    }
+
+    my $app = MyApp.new;
+    $app.start-request;
+
+=end SYNOPSIS
+
+=head1 DESCRIPTION
+
+B<Caution:> Experimental. This API is still being tested and may change.
+
+Bolts defines an Inversion of Control (IOC) framework. Inversion of Control is an object-oriented software pattern. This pattern is designed to help you build classes that are independent of each other and assembled by an outside controller, called the dependency injector. (Because of this IOC frameworks are often referred to as Dependency Injection (DI) frameworks.)
+
+When an IOC framework is present, classes are free to focus on executing their task without worrying about locating the external objects with which they need to exchange messages. This allows a large portion of your software be decoupled from other parts, which can make some aspects of reusability, development, and deployment simpler.
+
+In simple terms, you can think of this as a way of programming your software from a configuration file. It provides a sometimes convenient notation for building objects, linking them together, and caching them.
+
+This framework aims to provide a Perlish IOC framework, integrated into existing language features and provide some enhancements rather than forcing you down a development path that requires a full commitment to the framework.
+
+Lets start by taking a look at a simple example and working out what it does. Afterward, we will introduce the major concepts of the Bolts IOC framework and then see how they all work together. Finally, we will document the details of each component provided by this framework.
+
+=head2 Bolts Example
+
+    use Bolts;
+
+    class Point {
+        has $.x;
+        has $.y;
+    }
+
+    class Example does Bolts::Container {
+        method origin(|) is factory(
+            class      => Point,
+            parameters => \(:x(0), :y(0)),
+            scope      => Bolts::Scope::Singleton,
+        ) { * }
+
+        method point(|) is factory(
+            path       => <origin>,
+            clone      => True,
+            mutators   => [
+                { set => 'x', to => *.[0] },
+                { set => 'y', to => *.[1] },
+            ],
+        ) { * }
+    }
+
+    my $ex = Example.new;
+    my $origin = $ex.origin;
+    my $point = $ex.point(3, 4);
+
+    my $another-point = $ex.acquire(<point>, 7, 11);
+    my $zero = $ex.acquire(<origin x>);
+
+This is not a very interesting example, but it lets us examine the basics. Here we have defined a class named C<Point> and another named C<Example>.
+
+C<Example> is specifically marked as a container by implementing the L<Bolts::Container> class. It then contains two methods defined using the C<is factory> trait. The example, is essentially the same as this without using the factory traits:
+
+    class Example does Bolts::Container {
+        method origin() {
+            Point.new(:x(0), :y(0));
+        }
+        method point($x, $y) {
+            my $p = self.origin;
+            $p.x = $x;
+            $p.y = $y;
+            $p
+        }
+    }
+
+Clearly, this latter version would be more straight-forward, but we could also migrate the C<Example> class to a configuration file, which might be saved to disk or located in a database or loaded from a service configuration tool:
+
+    ---
+    factories:
+        origin:
+            class: Point
+            parameters:
+                hash:
+                    x: 0
+                    y: 0
+        point:
+            path: [ origin ]
+            mutators:
+                - set: x
+                  to: { at: 0 }
+                - set: y
+                  to: { at: 1 }
+
+This can then be loaded with L<Bolts::IO> like so:
+
+    my $example = Bolts::IO.load("config.yaml".IO.slurp);
+    my $origin = $example.acquire(<origin>);
+    my $point  = $example.acquire(<point>, 3, 5);
+
+Now your glue code can become configuration that can be modified as needed, possibly even letting you tweak your application in production.
+
+Aside from being configurable, the Bolts framework emphasizes designing objects that really don't know much about their environment. Each object configured by Bolts just needs to focus on its particular purpose.
+
+Anyway, enough arguing for the idea and let's consider what's going on.
+
+Each factory is represented by a L<Bolts::Factory> object. This object encapsulates a list of injectors, a blueprint, and a scope. The injectors determine what information is fed to the blueprint for construction and are able to modify the constructed object after construction. The blueprint knows how to construct the object. The scope knows how to cache the object.
+
+In the C<origin> factory, we see that we are using what is called a method call blueprint. The blueprint calls a named method (or "new" by default) on a named class, so it will call C<Point.new> in the case of C<origin>. But what does it pass to C<Point.new>?
+
+The C<parameters> setting to the C<origin> factory determines what is passed to the blueprint during construction. In this case, we see the L<Capture>, C<\(:x(0), :y(0))>. This gets processed into two parameter injectors that set the named argument C<x> to C<0> and the named argument C<y> also to C<0>.
+
+Once constructed, the object is cached according to the scope. With C<origin>, we use the singleton scope, which means that exactly one object will be constructed using the blueprint for as long as the container object exists. Any further calls to C<origin> will return the first object constructed.
+
+The C<point> factory uses a different blueprint. This one uses acquisition to acquire the value it uses from C<origin>. This is probably not the way you would choose to do this normally, but we do so here to demonstrate the feature. As we don't want to modify the singleton, we also tell blueprint, to clone whatever object it gets us, this way we have a fresh copy to work with.
+
+From there, we use two mutator injectors to set the C<x> and C<y> values to the first and second arguments passed to the method (or passed to C<acquire>).
+
+This factory does not set an explicit scope and relies on the default scope, which is L<Bolts::Scope::Prototype>. Prototype scope never caches the object, so a new object will be constructed on every call to C<point>.
+
+The other piece we should explain is the C<acquire> method. This is the preferred entry point to getting values out of a container hierarchy. You don't have to use it, but as containers may be different kinds of objects whose API varies slightly (think L<Hash> versus L<Bolts::Container>), using acquire will allow you to change how the containers are constructed without having to change the code that depends on the values in them.
+
+Basically, the first argument is a path, which is just a list of keys to look up in each container in the heirarchy. If we use C«<origin x>», for example, this is basically the same as calling C<$example.origin.x> (but smart enough to deal with whatever underlying API each container uses).
+
+The remaining arguments are passed to the final method in the path to be used by the factory for construction.
+
+Now that we have a basic notion of how this works, lets dig into the roles of each part of the system.
+
+=head2 Factories
+
+The primary component of the Bolts framework is the factory. A B<factory> is a method that encapsulates all aspects of configuring an individual value in the software. This defines a factory that knows to build a particular object, attach that object to other objects, and establish the lifecycle of the object.
+
+Bolts provides the L<Bolts::Factory> class to capture the implementation of a factory. These objects are usually constructed and attached to a container using the C<is factory()> trait.
+
+However, any method that returns something based on it's arguments may be treated as a factory by the Bolts framework.
+
+=head2 Containers
+
+A B<container> is an object that provides factory methods for constructing and retrieving objects. Containers may be any typical class, Maps, Lists, or special container objects provided by the framework, such as L<Bolts::Container> and L<Bolts::Register>.
+
+A B<hierarchy of containers> is the object tree formed by a container pointing to other containers. A container may use a factory to construct or manage child containers.
+
+=head2 Locators
+
+A B<locator> is an object able to find things in a hierarchy of containers. The process of finding a factory in a hierarchy is called B<acquisition>. Once the desired factory is acquired via the locator, it will be resolved into an object. B<Resolution> is the process of turning the factory configuration into an actual object.
+
+In Bolts, the C<acquire> method of B<Bolts::Locator> performs acquisition. Bolts uses a Proxy object to automatically resolve the actual object upon fetch, so resolution is seamless.
+
+=head2 Blueprints
+
+During resolution, a B<blueprint> defines how the object is retrieved or constructed. The Bolts framework provides L<Bolts::Blueprint> role for defining the contract blueprints adhere to and several built-in blueprint types.
+
+=head2 Injectors
+
+For blueprints to work, they need input. B<Injectors> find data to input to blueprints and injects them into the blueprints during resolution. Bolts provides two kinds of injectors: parameter injectors and mutator injectors.
+
+B<Parameters> feed data into the blueprint itself during resolution.
+
+B<Mutators> modify the object created by the blueprint immediately after it is produced.
+
+=head2 Scope
+
+The B<scope> determines how long an object will be cached in the container to be reused. The default scope does not cache the object, so it will be rebuilt from the blueprint every time. However, other scopes allow the value to be cached longer.
+
+=head1 ROLES & CLASSES
+
+=head2 role Bolts::Blueprint
+
+This role defines the contract that all blueprints must follow.
+
+=head3 method get
+
+    method get($c, Capture $args)
+
+Anything using a blueprint to do work will call this method to do that work.
+
+The first argument, C<$c>, is the container in which the object is being created and the second argument is the C<Capture> containing the arguments the blueprint may use during construction, if applicable.
+
+B<Important:> It is important to understand what C<$args> is when declaring your blueprints.
+
+=item If the blueprint is used directly as part of a factory, these will be the arguments that have been constructed and injected by the configured L<Bolts::Parameter> injectors.
+
+=item However, if the blueprint is being used in conjuction with an injector, this will be the actual arguments passed to the factory method by the caller.
+
+=head3 method build
+
+    method build($c, Capture $args)
+
+This is the method any implementor of a blueprint must implement. This should return the constructed argument.
+
+The first argument, C<$c>, is the container in which the object is being created and the second argument is the C<Capture> containing the arguments the blueprint may use during construction, if applicable.
+
+=head2 class Bolts::Blueprint::Built
+
+This blueprint calls the given L<Callable> and returns whatever it returns as the built object.
+
+=head3 has &.builder
+
+    has &.builder is required
+
+This is the subroutine to run to get the object.It will be passed the same arguments given to the C<get> method of L<role Bolts::Blueprint>. There are a couple special cases:
+
+=item C<WhateverCode> If given a C<WhateverCode>, the arguments will be passed as a C<Capture>. This way C<*.[$nth]> will grab the C<$nth> object or C<*.{$named}> will grab the argument named C<$named>.
+
+=item C<Method> If given a C<Method>, C<self> will be set to the container on which this factory is being called. Any other code type will not have a reference to the container object.
+
+=head2 class Bolts::Blueprint::MethodCall
+
+This blueprint calls a method on a named class or object.
+
+=head3 has $.class
+
+    has $.class is required
+
+This names the class or object on which to call a method. This is normally given as a type name, but really could be anything on which a method may be called.
+
+=head3 has $.method
+
+    has $.method = "new"
+
+This names the method to be called. The method will be passed the arguments given to the blueprint during the call to C<get>.
+
+=head2 class Bolts::Blueprint::Acquired
+
+This blueprint will lookup a value within the current container.
+
+=head3 has @.path
+
+This is the path to use during acquisition. The basis for acquisition will be the container the factory method belongs to. If the first path in the lookup is "/", then the container's root will be used as the basis instead.
+
+=head2 class Bolts::Blueprint::Given
+
+This blueprint will return the arguments provided during injection.
+
+If no attributes on the given object are set, the L<Capture> given as the second argument to the C<get> method is returned as-is by this blueprint. Attributes set on this blueprint will select individual parts of the arguments to return instead.
+
+When setting attributes on this object, only one of C<$.key>, C<$.at>,adn C<$.slurp-keys> should be set. If more than one is defined, the behavior is not defined and may result in an exception.
+
+=head3 has $.key
+
+    has $.key
+
+If the C<$.key> attribute is set, then the named argument named C<$.key> will be returned by the blueprint.
+
+=head3 has $.at
+
+    has Int $.at
+
+If the $.at attribute is set, then the positional argument at the index C<$.at> will be returned by the blueprint.
+
+=head3 has $.slurp
+
+    has Bool $.slurp
+
+This attribute only means something when C<$.at> is set. When combined with C<$.at>, all positional arguments pass from C<$.at> to the end of the positional arguments will be slurped up and returned as a list.
+
+=head3 has $.slurp-keys
+
+    has Bool $.slurp-keys
+
+This attribute causes all named arguments to be slurped and returned as a list of pairs. Any key named in the C<$.excluding-keys> set will be excluded from the returned list.
+
+=head3 has $.excluding-keys
+
+    has Set $.excluding-keys
+
+This attribute selects the named arguments to avoid slurping when using C<$.slurp-keys>.
+
+=head2 class Bolts::Blueprint::Literal
+
+This blueprint returns whatever value it is given.
+
+=head3 has $.value
+
+    has $.value
+
+This is the literal value to return from this blueprint.
+
+=head1 GOALS
+
+The goal of this project is to provide the basis for building an entire common objects library, which will provide tools for building applications, with these aspects being emphasize:
+
+=head2 Separation of Concerns
+
+The primary goal is to build applications out of small components that are laser-focused on doing one thing. These components should not depend on anything outside of themselves, inasmuch as possible given their task.
+
+=head2 Layers of Opinionation
+
+Each of the components in the system should allow a developer coming in to do the thing she wants without having to do it the way I would do it. The Perl community refers to this as TIMTOWTDI, but when a framework is implemented on top of Perl, it is very difficult to provide complete flexibility (a real-life scaffold that is completely flexible will certainly collapse).
+
+I admit that this is the case, so the compromise is that the framework is built with "layers of opinionation". The developer applying the framework adopts the layers with opinions matching her own needs and preferences. The framework, then, provides places where the developer can insert a different implementation for layers when opinions differ. This requires that each piece of the framework be robust and not too dependent on the others (see Separation of Concerns).
+
+=head2 Α to Ω Flexibility
+
+The final aspect of this project is an emphasis on making sure that the application may be modified even after it has been "thrown of the wall." Often the deployment team or developer operations team needs tooling to be able to modify an application. However, if this requires issuing a change request and going through the whole development process, it can take a long time to fix and address problems.
+
+To address this, I aim to provide tools to allow as much of an application as practicable can be adjusted through configuration. This is done by making it easy to adjust the layout and construction and lifecycle of objects and values. If done will, a deployed application can be made to react to the needs of deployment and operations without requiring any code changes even to the point of being reconfigured on the fly to address changing needs in the environment.
+
+=head2 Unified through IOC
+
+To achieve these ends, an Inversion of Control framework is an absolutely necessary foundation layer. With this in place, it becomes simpler to build each piece of the framework in its own niche and then glue all the pieces together to form a whole, but each piece can then be yanked out and replaced with a different implementation as needed or preferred.
+
+=head1 HISTORY
+
+I built an IOC framework for Perl 5 by the same name and this borrows many of the same concepts. However, there were some fundamental aspects of that framework I never liked, which also kept me from making effective use of it in my own work. This is an attempt to rebuild a similar system from the ground up, in Perl 6, and hopefully learn from the lessons I learned the first time around.
+
+Many concepts are borrowed from Perl 5's C<Bread::Board> project and from the Spring Framework for Java, but I've gone in some different directions on my own in the process.
+
+=end pod
+
 role Blueprint {
     has $.clone;
 
