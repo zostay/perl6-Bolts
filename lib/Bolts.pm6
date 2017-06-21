@@ -361,7 +361,7 @@ This role should be implemented by any object wishing to behave as a container. 
 
 This is the parent object of the container. It may be undefined to use this container as the root container.
 
-=head2 class Register
+=head2 class Bolts::Register
 
 This class provides a wrapper to provide a locator to another object that will act as the container. It is a L<Bolts::Locator>.
 
@@ -370,6 +370,75 @@ This class provides a wrapper to provide a locator to another object that will a
     has $.bolts-base is required
 
 This may be set to any Perl object that can be used to locate on.
+
+=head2 role Bolts::SingletonScope
+
+This is a role that will be applied to the object at the root of the container hierarchy the first time a L<Bolts::Scope::Singleton> scoped object is resolved.
+
+=head3 has %.bolts-singletons
+
+This stores references to all singletons cached in the container hierarchy.
+
+=head2 role Bolts::Scope
+
+This is the role that all scopes must implement.
+
+=head3 method put
+
+    method put($c, Bolts::Factory:D $factory, $object)
+
+This method is called on a scope whenever a factory has generated one during resolution. The scope should cache the object as appropriate. The first argument is the container in which the object is associated, the second is the L<Bolts::Factory> object used to generate it, and the third is the object to cache.
+
+=head3 method get
+
+    method get($c, Bolts::Factory:D $factory)
+
+This method is called on a scope whenever it is resolving an object. This method should check to see if an object for the given factory is cached and return it. If not, it should return an undefined value.
+
+The first argument is the container the factory is associated with and the second is the L<Bolts::Factory> object that was or will be used to generate the object.
+
+=head2 class Bolts::Scope::Prototype
+
+This implements a L<Bolts::Scope> to perform no cachine whatsoever and is the default scope.
+
+This scope is typically used as the type itself without calling the constructor.
+
+=head2 class Bolts::Scope::Singleton
+
+This implements a L<Bolts::Scope> to provide singleton objects, these are objects that exist as long as the root container in the container hierarchy exists.
+
+This scope is typically used as the type itself without calling the constructor.
+
+=head2 class Bolts::Scope::Dynamic
+
+This implements a L<Bolts::Scope> that performs caching based upon the current dynamic scope.
+
+    my $c = class :: does Bolts::Container {
+        method counter(|) is factory({ $++ },
+            scope => Bolts::Scope::Dynamic.new("%*BOLTS-DYNAMIC"),
+        ) { * }
+    }.new;
+
+    say $c.counter; #> 1
+    say $c.counter; #> 2
+
+    {
+        my %*BOLTS-DYNAMIC;
+        say $c.counter; #> 3
+        say $c.counter; #> 3
+    }
+
+    {
+        my %*BOLTS-DYNAMIC;
+        say $c.counter; #> 4
+        say $c.counter; #> 4
+    }
+
+As you can see here, the C<counter> factory returns an incrementing number each time the builder is called. With the dynamic scope, the value will be cached in the variable named during construction (defaulting to C<%*BOLTS-DYNAMIC>), if it exists.
+
+So the first two calls to C<counter> are not cached at all. The third call causes "3" to be cached and returned on the fourth, but the cache goes away when the dynamic variable goes out of scope. The same happens again for the fifth and sixth call and "4".
+
+With careful use of dynamic scoping, many kinds of interesting scopes can be crafted without needing any other special scope objects.
 
 =head1 GOALS
 
