@@ -8,7 +8,17 @@ role Blueprint {
 
 class Blueprint::Built does Blueprint {
     has &.builder;
-    method get($c, Capture $args) { &!builder.(|$args) }
+
+    submethod TWEAK {
+        if &!builder ~~ WhateverCode {
+            my &code = &!builder;
+            &!builder = -> |c { code(c) };
+        }
+    }
+
+    method get($c, Capture $args) {
+        &!builder.(|$args)
+    }
 }
 
 class Blueprint::Factory does Blueprint {
@@ -385,12 +395,12 @@ multi build-parameters(Any:U) {
     (
         Parameter::Slip.new(
             blueprint => Blueprint::Built.new(
-                builder => -> *@list, *%hash { @list },
+                builder => *.list,
             ),
         ),
         Parameter::NamedSlip.new(
             blueprint => Blueprint::Built.new(
-                builder => -> *@list, *%hash { %hash },
+                builder => *.hash,
             ),
         ),
     )

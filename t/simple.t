@@ -15,6 +15,9 @@ class Simple does Bolts::Container {
     method given-param(|) is factory(*,
         parameters => \(43, opt => 4),
     ) { * }
+    method build-param(|) is factory(*.<opt>,
+        parameters => \(44, opt => 5),
+    ) { * }
 
     method foo(|) is factory(:class(Foo)) { * }
     method foo-param(|) is factory(
@@ -43,6 +46,7 @@ isa-ok $simple.^methods.first(*.name eq 'given').factory.blueprint, Bolts::Bluep
 
 is-deeply $simple.given-param, \(43, opt => 4), 'got correct things from simple.given-param';
 is-deeply $simple.given(43, opt => 4), \(43, opt => 4), 'simple.given is the same as simple.given-param when given the same parameters';
+is $simple.build-param, 5, 'got correct thing from simple.build-param';
 
 my $foo = $simple.foo(stuff => 'ffuts');
 isa-ok $foo, Foo;
