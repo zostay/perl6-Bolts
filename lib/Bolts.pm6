@@ -39,7 +39,33 @@ class Blueprint::Acquired does Blueprint {
 }
 
 class Blueprint::Given does Blueprint {
-    method get($c, Capture $args) { $args }
+    has $.key;
+
+    has Int $.at;
+    has Bool $.slurp;
+
+    has Bool $.slurp-keys;
+    has Set $.excluding-keys;
+
+    method get($c, Capture $args) {
+        if $!key.defined {
+            $args{ $!key };
+        }
+        elsif $!slurp-keys {
+            $args.hash.grep({ .key ∉ $!excluding-keys })
+        }
+        elsif $!at.defined {
+            if $!slurp {
+                $args[ $!at .. *-1 ];
+            }
+            else {
+                $args[ $!at ];
+            }
+        }
+        else {
+            $args
+        }
+    }
 }
 
 class Blueprint::Literal does Blueprint {
@@ -359,6 +385,15 @@ multi build-blueprint(Blueprint:D $blueprint) {
 }
 multi build-blueprint(Whatever) {
     Blueprint::Given.new;
+}
+multi build-blueprint(:$key!) {
+    Blueprint::Given.new(:$key);
+}
+multi build-blueprint(:$at!, :$slurp) {
+    Blueprint::Given.new(:$at, :$slurp);
+}
+multi build-blueprint(:$slurp-keys!, :@excluding-keys) {
+    Blueprint::Given.new(:$slurp-keys, set(@excluding-keys));
 }
 multi build-blueprint(:$class!, :$method = "new") {
     Blueprint::Factory.new(:$class, :$method);
