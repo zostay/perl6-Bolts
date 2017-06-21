@@ -1,0 +1,43 @@
+{
+    "name" : "Bolts",
+    "license" : "Artistic-2.0",
+    "version" : "0.2",
+    "description" : "An IOC framework",
+    "authors" : [
+        "Sterling Hanenkamp <hanenkamp@cpan.org>"
+    ],
+    "perl" : "6.c",
+    "provides" : {
+        "Bolts": "lib/Bolts.pm6",
+        "Bolts::Blueprint": "lib/Bolts.pm6",
+        "Bolts::Blueprint::Acquried": "lib/Bolts.pm6",
+        "Bolts::Blueprint::Built": "lib/Bolts.pm6",
+        "Bolts::Blueprint::Given": "lib/Bolts.pm6",
+        "Bolts::Blueprint::Literal": "lib/Bolts.pm6",
+        "Bolts::Blueprint::MethodCall": "lib/Bolts.pm6",
+        "Bolts::Container": "lib/Bolts.pm6",
+        "Bolts::Factory": "lib/Bolts.pm6",
+        "Bolts::Injector": "lib/Bolts.pm6",
+        "Bolts::Locator": "lib/Bolts.pm6",
+        "Bolts::Mutator": "lib/Bolts.pm6",
+        "Bolts::Mutator::Call": "lib/Bolts.pm6",
+        "Bolts::Mutator::Setter": "lib/Bolts.pm6",
+        "Bolts::Mutator::Store": "lib/Bolts.pm6",
+        "Bolts::Parameter": "lib/Bolts.pm6",
+        "Bolts::Parameter::NamedSlip": "lib/Bolts.pm6",
+        "Bolts::Parameter::Slip": "lib/Bolts.pm6",
+        "Bolts::Parameter::Named": "lib/Bolts.pm6",
+        "Bolts::Parameter::Positional": "lib/Bolts.pm6",
+        "Bolts::Register": "lib/Bolts.pm6",
+        "Bolts::Rooted": "lib/Bolts.pm6",
+        "Bolts::Scope": "lib/Bolts.pm6",
+        "Bolts::Scope::Dynamic": "lib/Bolts.pm6",
+        "Bolts::Scope::Prototype": "lib/Bolts.pm6",
+        "Bolts::Scope::Singleton": "lib/Bolts.pm6",
+        "Bolts::SingletonScope": "lib/Bolts.pm6",
+        "Bolts::Trait::Factory": "lib/Bolts.pm6"
+    },
+    "depends" : [ ],
+    "test-depends" : [ "Test", "Test::META" ],
+    "source-url" : "git://github.com/zostay/perl6-Bolts.git"
+}
