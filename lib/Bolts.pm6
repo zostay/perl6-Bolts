@@ -3,7 +3,15 @@ unit module Bolts;
 use v6;
 
 role Blueprint {
-    method get($c, Capture $args) { ... }
+    has $.clone;
+
+    method build($c, Capture $args) { ... }
+
+    method get($c, Capture $args) {
+        my $o = self.build($c, $args);
+        $o .= clone if $!clone;
+        $o;
+    }
 }
 
 class Blueprint::Built does Blueprint {
@@ -16,15 +24,15 @@ class Blueprint::Built does Blueprint {
         }
     }
 
-    method get($c, Capture $args) {
+    method build($c, Capture $args) {
         &!builder.(|$args)
     }
 }
 
-class Blueprint::Factory does Blueprint {
+class Blueprint::MethodCall does Blueprint {
     has $.class;
     has $.method = "new";
-    method get($c, Capture $args) { $!class."$!method"(|$args) }
+    method build($c, Capture $args) { $!class."$!method"(|$args) }
 }
 
 role Locator { ... }
@@ -32,7 +40,7 @@ class Register { ... }
 
 class Blueprint::Acquired does Blueprint {
     has @.path;
-    method get($c, Capture $args) {
+    method build($c, Capture $args) {
         my $locator = $c ~~ Locator ?? $c !! Register.new(:bolts-base($c));
         $locator.acquire(@!path, |$args);
     }
@@ -47,7 +55,7 @@ class Blueprint::Given does Blueprint {
     has Bool $.slurp-keys;
     has Set $.excluding-keys;
 
-    method get($c, Capture $args) {
+    method build($c, Capture $args) {
         if $!key.defined {
             $args{ $!key };
         }
@@ -70,7 +78,7 @@ class Blueprint::Given does Blueprint {
 
 class Blueprint::Literal does Blueprint {
     has $.value;
-    method get($c, Capture $args) { $!value }
+    method build($c, Capture $args) { $!value }
 }
 
 class Factory { ... }
@@ -383,29 +391,29 @@ class Factory {
 multi build-blueprint(Blueprint:D $blueprint) {
     $blueprint;
 }
-multi build-blueprint(Whatever) {
-    Blueprint::Given.new;
+multi build-blueprint(Whatever, :$clone) {
+    Blueprint::Given.new(:$clone);
 }
-multi build-blueprint(:$key!) {
-    Blueprint::Given.new(:$key);
+multi build-blueprint(:$key!, :$clone) {
+    Blueprint::Given.new(:$key, :$clone);
 }
-multi build-blueprint(:$at!, :$slurp) {
-    Blueprint::Given.new(:$at, :$slurp);
+multi build-blueprint(:$at!, :$slurp, :$clone) {
+    Blueprint::Given.new(:$at, :$slurp, :$clone);
 }
-multi build-blueprint(:$slurp-keys!, :@excluding-keys) {
-    Blueprint::Given.new(:$slurp-keys, set(@excluding-keys));
+multi build-blueprint(:$slurp-keys!, :@excluding-keys, :$clone) {
+    Blueprint::Given.new(:$slurp-keys, set(@excluding-keys), :$clone);
 }
-multi build-blueprint(:$class!, :$method = "new") {
-    Blueprint::Factory.new(:$class, :$method);
+multi build-blueprint(:$class!, :$method = "new", :$clone) {
+    Blueprint::MethodCall.new(:$class, :$method, :$clone);
 }
-multi build-blueprint(&builder) {
-    Blueprint::Built.new(:&builder);
+multi build-blueprint(&builder, :$clone) {
+    Blueprint::Built.new(:&builder, :$clone);
 }
-multi build-blueprint(:@path) {
-    Blueprint::Acquired.new(:@path);
+multi build-blueprint(:@path, :$clone) {
+    Blueprint::Acquired.new(:@path, :$clone);
 }
-multi build-blueprint(Cool $value) {
-    Blueprint::Literal.new(:$value);
+multi build-blueprint(Cool $value, :$clone) {
+    Blueprint::Literal.new(:$value, :$clone);
 }
 
 multi build-parameters(Capture:D $cons) {
