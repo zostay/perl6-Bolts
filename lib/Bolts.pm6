@@ -184,6 +184,30 @@ A B<locator> is an object able to find things in a hierarchy of containers. The 
 
 In Bolts, the C<acquire> method of B<Bolts::Locator> performs acquisition. Bolts uses a Proxy object to automatically resolve the actual object upon fetch, so resolution is seamless.
 
+=head2 Resolution Process
+
+Once the factory has been located during acquisition, it is resolved. The resolution process follows a very process that can be important to understand, especially when building new bluprints, injectors, scopes, etc. It is also helpful to understand how that object you end up with from a factory is constructed and cached in detail.
+
+Here's the process, which is primarily initiated within the C<resolve> method of L<Bolts::Factory>.
+
+=item If the method that is being used as a factory has been made so using the C<is factory> trait, the original method will be executed. If the method returns a C<Whatever>, execution proceeds normally. Otherwise the value returned will be used as the arguments to factory resolution. This allows a very early form of injection to be performed.
+
+=item A L<Proxy> object is built. The C<STORE> method dies if called. The C<FETCH> method will complete the resolution process by returning the value returned by the C<get> method of L<Bolts::Factory>. This means that if the value is bound, each read of that value will result in a fresh call to C<get>.
+
+=item When the returned value is read the scope of the factory is checked to see if a cached value is stored. If a cached value is stored, that value is immediately returned.
+
+=item If no value is cached, a L<Capture> is built from the L<Bolts::Parameter> injectors. Each injector blueprint will be called with the original parameters passed in to the factory method call with the results being compiled into the injection parameters.
+
+=item Then the L<Bolts::Blueprint> for the factory is called and passed the injection parameters. Its result is the object that will be returned by this method. It is important to note here that if the C<clone> attribute is set on the blueprint, whatever value is returned will be a clone of the value the blueprint generated.
+
+=item Then all the L<Bolts::Mutator> injectors will be run against the object. This results in the blueprints for each of these being called with the original parameters passed in to the factory method call (i.e., not the injection parameters created by the parameter injectors in a previous step). The value returned by the blueprint is passed to each mutator and the mutator modifies the object using that value.
+
+=item If the object has an accessor named C<bolts-parent>, it will be set to the container this factory belongs to.
+
+=item The object will now be placed into the object scope for the purpose of caching.
+
+=item Lastly, the newly minted object is returned.
+
 =head2 Blueprints
 
 During resolution, a B<blueprint> defines how the object is retrieved or constructed. The Bolts framework provides L<Bolts::Blueprint> role for defining the contract blueprints adhere to and several built-in blueprint types.
@@ -397,9 +421,33 @@ This method is called on a scope whenever it is resolving an object. This method
 
 The first argument is the container the factory is associated with and the second is the L<Bolts::Factory> object that was or will be used to generate the object.
 
+=head2 class Bolts::Scope::Transient
+
+This implements a L<Bolts::Scope> which does not caching at all.
+
+Typically, this will behave very similarly to L<Bolts::Scope::Prototype>, but this will likely have unexpected consequences in some situations.
+
+Consider the following example:
+
+    my $c = class :: does Bolts::Container {
+        method counter is factory(*,
+            scope => Bolts::Scope::Transient,
+        ) { $++ }
+    }.new;
+
+    my $counter := $c.say-it;
+    say map({ $counter }, ^3).join(' ');
+    # OUTPUT> 4␤5␤6␤
+
+A transient value like this is very sensitive as every read will result in a new value being generated. However, if you do not bind the value, it will behave similar to prototype scope, but it is not the default because the behavior on aliased values is usually strange and unexpected.
+
+As such, a transient may save you the overhead of any little amount of caching, but at the cost of constructing the value on every read, which may happen several times in unexpected ways in some cases.
+
 =head2 class Bolts::Scope::Prototype
 
-This implements a L<Bolts::Scope> to perform no cachine whatsoever and is the default scope.
+This implements a L<Bolts::Scope> to perform basic value caching. Resolution of a L<Bolts::Factory> is performed by the system by embedding a call to C<get> within a L<Proxy>. This caches it so that the value is cached per L<Proxy> object construction. This means that if a value is aliased to the method, each read after the first is cached.
+
+This is the default scope.
 
 This scope is typically used as the type itself without calling the constructor.
 
@@ -439,6 +487,174 @@ As you can see here, the C<counter> factory returns an incrementing number each 
 So the first two calls to C<counter> are not cached at all. The third call causes "3" to be cached and returned on the fourth, but the cache goes away when the dynamic variable goes out of scope. The same happens again for the fifth and sixth call and "4".
 
 With careful use of dynamic scoping, many kinds of interesting scopes can be crafted without needing any other special scope objects.
+
+=head2 role Bolts::Injector
+
+This is the role implemented by all injectors, whether parameters or mutators.
+
+=head3 has $.blueprint
+
+    has $.blueprint is required
+
+All injectors have a blueprint. These blueprints will be passed the original parameters passed to the factory method, regardless of whether the injector is a parameter or a mutator.
+
+=head3 method get-value
+
+    method get-value($c, Capture $args)
+
+This calls the C<get> method of C<$.blueprint> and should be called by injector implementations when they need the blueprint value.
+
+=head2 role Bolts::Parameter
+
+Parameter injectors are used to build a capture, which is passed as the arguments to the main blueprint of the factory.
+
+=head3 method get
+
+    method get($c, Capture $args)
+
+This method must be implemented by all parameter injectors. The first argument is the container in which the injection is taking place. The second argument is the original parameters passed to the factory method. The method returns the value to be injected.
+
+=head3 method append-capture($value, @list, %hash)
+
+This method must be implemented by all parameter injectors. The first argument is the value this injector returned from C<get>. The next two arguments are the C<@list> and C<%hash> values which will be used to construct the C<Capture> object.
+
+=head2 class Bolts::Parameter::NamedSlip
+
+A named slip parameter injector will apply a slip to named parameters returned by the blueprint and feed them into the named parameters of the C<Capture> being built.
+
+=head2 class Bolts::Parameter::Slip
+
+A slip parameter injector will apply a slip to positional paramters returned by the blueprint and feed them into the positional parameters of the C<Capture> being built.
+
+=head2 class Bolts::Parameter::Named
+
+Sets a named parameter on the C<Capture> being built with the blueprint becoming the value.
+
+=head3 has $.key
+
+    has $.key is required
+
+This is the name of parameter to set.
+
+=head2 class Bolts::Parameter::Positional
+
+Sets the next positional parameter on the C<Capture> being built to the value returned by the blueprint.
+
+=head2 role Bolts::Mutator
+
+This is the role all mutator injectors must implement.
+
+=head3 method mutate
+
+    method mutate($c, $object, Capture $args)
+
+This method must be implemented by all mutators. It is expected that the mutator will modify the given object. The first argument is the container in which the factory is working. The second argument is the object to modify. The third and final argument is the original parameters passed to the factory method (not the injection parameters built by the parameter injectors).
+
+=head2 class Bolts::Mutator::Setter
+
+This mutator will set a value on the object using an attribute setter to set the value returned by the blueprint.
+
+=head3 has $.attribute
+
+    has $.attribute is required
+
+This is the name of the attribute to set.
+
+=head2 class Bolts::Mutator::Call
+
+This mutator will call a method on the object and pass it the value returned by the blueprint.
+
+=head3 has $.method
+
+    has $.method is required
+
+This is the name of the method to call.
+
+=head2 class Bolts::Mutator::Store
+
+This mutator will store a value into an L<Associative> or L<Positional> object. It will set the blueprint value on a single position in either kind of object.
+
+=head3 has $.key
+
+    has $.key
+
+This names the key to set on an associative object (e.g., L<Map> or L<Hash>). If this is set, C<$.at> must not be set.
+
+=head3 has $.at
+
+    has $.at
+
+This names the index to set on a positional object (.e.g, L<List> or L<Array>). If this is set, C<$.key> must not be set.
+
+=head2 class Bolts::Factory
+
+This encapsulates the data and logic for defining a factory method.
+
+=head3 has $.blueprint
+
+    has Bolts::Blueprint $.blueprint is required
+
+This is the primary blueprint used by the factory to build the object to return from the factory method. It will be called with the arguments crafted by the parameter injectors.
+
+=head3 has $.scope
+
+    has Bolts::Scope $.scope is required;
+
+This is the scope to use to cache the value generated by the blueprint.
+
+=head3 has @.injectors
+
+    has Bolts::Injector @.injectors
+
+This is a list of injectors to use to craft the injection parameters passed to the blueprint during construction and to modify the object with mutator injectors after construction.
+
+=head3 method build-capture
+
+    method build-capture($c, Capture $args) returns Capture:D
+
+This method builds the injection parameters using the given arguments in C<$args> and the C<@.injectors>.
+
+=head3 method mutate
+
+    method mutate($c, $object, Capture $args)
+
+This method applies all the mutator injectors to the object constructed by the blueprint.
+
+=head3 method get
+
+    method get($c, Capture $args)
+
+This method does all the work of checking the scope for an existing object, building a L<Capture> using the parameter injectors, calling the blueprint with the injection parameters, modifying the generated object with the mutator injectors, setting the C<bolts-parent> accessor if present, storing the generated value in the scope, and returning the object.
+
+=head3 method resolve
+
+    method resolve($c, Capture $args)
+
+This method returns the L<Proxy> object that automatically performs resolution whenever the value is read.
+
+=head2 role Bolts::Trait::Factory
+
+    role Bolts::Trait::Factory[Bolts::Factory $factory, Method $orig]
+
+This is the role that is applied to methods on which the C<is factory> trait is set.
+
+=head3 method factory
+
+    method factory() returns Bolts::Factory
+
+Returns the factory object that will be run when the method is called.
+
+=head3 method CALL-ME
+
+    method CALL-ME($self, |args)
+
+This replaces the original method code with code that runs the original method and checks to see if it is a C<Whatever> or something else. IF a C<Whatever>, then the parameters to this method call are passed through to the C<resolve> method of L<Bolts::Factory>. If something else, that value is used as the original parameters to C<resolve> instead.
+
+=head2 is factory
+
+    multi trait_mod:<is> (Method $m, :$factory)
+
+This applies the C<Bolts::Trait::Factory> trait to the method.
 
 =head1 GOALS
 
@@ -675,9 +891,18 @@ role Scope {
     method get($c, $factory) { ... }
 }
 
-class Scope::Prototype does Scope {
+class Scope::Transient does Scope {
     method put($c, $factory, $object) { }
     method get($c, $factory) { }
+}
+
+class Scope::Prototype does Scope {
+    method put($c, $factory, $object, :$BOLTS-PER is raw) {
+        $BOLTS-PER = $object if $BOLTS-PER.VAR.DEFINITE;
+    }
+    method get($c, $factory, :$BOLTS-PER) {
+        $BOLTS-PER with $BOLTS-PER;
+    }
 }
 
 class Scope::Singleton does Scope does Rooted {
@@ -715,7 +940,7 @@ class Scope::Dynamic does Scope does Rooted {
 }
 
 role Injector {
-    has $.blueprint;
+    has $.blueprint is required;
 
     method get-value($c, Capture $args) {
         $!blueprint.get($c, $args);
@@ -749,7 +974,7 @@ class Parameter::Slip does Parameter {
 }
 
 class Parameter::Named does Parameter {
-    has $.key;
+    has $.key is required;
 
     method get($c, Capture $args) {
         $!key => self.get-value($c, $args);
@@ -775,7 +1000,7 @@ role Mutator is Injector {
 }
 
 class Mutator::Setter does Mutator {
-    has $.attribute;
+    has $.attribute is required;
 
     method mutate($c, $object, Capture $args) {
         $object."$!attribute"() = self.get-value($c, $args);
@@ -783,7 +1008,7 @@ class Mutator::Setter does Mutator {
 }
 
 class Mutator::Call does Mutator {
-    has $.method;
+    has $.method is required;
 
     method mutate($c, $object, Capture $args) {
         $object."$!method"(|self.get-value($c, $args));
@@ -837,8 +1062,8 @@ class Factory {
         }
     }
 
-    method get($c, Capture $args) {
-        my $obj = $!scope.get($c, self);
+    method get($c, Capture $args, :$BOLTS-PER is raw) {
+        my $obj = $!scope.get($c, self, :$BOLTS-PER);
         return $obj with $obj;
 
         my $inject-args = self.build-capture($c, $args);
@@ -849,9 +1074,19 @@ class Factory {
 
         $obj.bolts-parent //= $c if $obj ~~ Container;
 
-        $!scope.put($c, self, $obj);
+        $!scope.put($c, self, $obj, :$BOLTS-PER);
 
         $obj;
+    }
+
+    method resolve($c, Capture $args) {
+        my $factory = self;
+
+        my $BOLTS-PER;
+        Proxy.new(
+            FETCH => method () { $factory.get($c, $args, :$BOLTS-PER) },
+            STORE => method ($v) { die 'storing to an factory is not permitted' },
+        );
     }
 }
 
@@ -1013,10 +1248,7 @@ role Trait::Factory[Factory $factory, Method $orig] {
         my $args = $self.$orig(|args);
         $args = args if $args ~~ Whatever;
 
-        Proxy.new(
-            FETCH => method () { $factory.get($self, $args) },
-            STORE => method ($v) { die 'storing to an factory is not permitted' },
-        );
+        $factory.resolve($self, $args);
     }
 }
 

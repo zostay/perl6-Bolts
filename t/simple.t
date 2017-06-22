@@ -69,6 +69,11 @@ is $simple.counter, 2, 'second simple.counter is 2';
 is $simple.counter, 3, 'third simple.counter is 3';
 isa-ok $simple.^methods.first(*.name eq 'counter').factory.blueprint, Bolts::Blueprint::Built, 'we can get at simple.counter the factory itself';
 
+my $bcounter := $simple.counter;
+is $bcounter, 4, 'first $bcounter is 4';
+is $bcounter, 4, 'second $bcounter is 4';
+is $bcounter, 4, 'third $bcounter is 4';
+
 is $simple.acquire(<foo-param stuff>), 'some stuff', 'acquisition works';
 is $simple.acquire([ foo => \(stuff => 'other stuff'), 'stuff' ]), 'other stuff', 'acquisition with intermediate args works';
 is $foo.acquire(<stuff>), 'ffuts', 'acquisition from foo works';
@@ -95,7 +100,7 @@ my $rd;
 }
 isn't $simple.random-dynamic, $rd, 'random is not the same outside dynamic scope';
 
-is $simple.build-method, 4, 'simple.build-method is 4';
-is $simple.acquired, 5, 'simple.acquired is 5';
+is $simple.build-method, 5, 'simple.build-method is 5';
+is $simple.acquired, 6, 'simple.acquired is 6';
 
 done-testing;
